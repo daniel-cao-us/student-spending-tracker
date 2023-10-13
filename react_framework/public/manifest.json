@@ -1,0 +1,8 @@
+{
+  "short_name": "Spending Tracker App",
+  "name": "Tracking Spending",
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#000000",
+  "background_color": "#ffffff"
+}
