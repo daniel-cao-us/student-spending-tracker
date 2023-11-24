@@ -1,19 +1,53 @@
-import React from "react";
+import React, {useRef, useEffect, useState} from "react";
 import { Button, Col, Container, Form, FormGroup, FormLabel } from "react-bootstrap";
 import { useNavigate } from "react-router-dom";
+import { useMutation, gql } from "@apollo/client";
+
+const REGISTER_USER = gql`
+    mutation RegisterUser($username: String!, $password: String!) {
+        register(username: $username, password: $password) {
+            user {
+                id
+                username
+                password
+            }
+        }
+    }
+`;
 
 const Signup = () => {
 
     const navigate = useNavigate();
+    const [registerUser, {data, loading, error}] = useMutation(REGISTER_USER);
+    const [errorMessage, setErrorMessage] = useState('');
 
-    const submitSignupForm = (event) => {
+    const usernameRef = useRef(null);
+    const passwordRef = useRef(null);
+
+    const submitSignupForm = async (event) => {
         event.preventDefault();
-        setTimeout(() => {
-            navigate('/');
-        }, 500);
-        // create an account with graph ql
+        setErrorMessage('');
+
+        const username = usernameRef.current.value;
+        const password = passwordRef.current.value;
+
+        await registerUser({
+            variables: {username, password}
+        });
+
     }
 
+    useEffect(() => {
+        if (data) {
+            console.log('Received data:', data);
+            navigate('/'); 
+        }
+        if (error) {
+            console.error('Received GraphQL error:', error);
+            setErrorMessage("Username already in use");
+
+        }
+    }, [data, error]);
 
     return (
         <React.Fragment>
@@ -25,12 +59,18 @@ const Signup = () => {
                         <Form id="loginForm" onSubmit={submitSignupForm}>
                             <FormGroup className="mb-3">
                                 <FormLabel htmlFor={'signup-username'}>Username</FormLabel>
-                                <input type={'text'} className="form-control" id={'signup-username'} name="username" required />
+                                <input type={'text'} className="form-control" id={'signup-username'} name="username" ref={usernameRef} required />
                             </FormGroup>
                             <FormGroup className="mb-3">
                                 <FormLabel htmlFor={'signup-password'}>Password</FormLabel>
-                                <input type={'password'} className="form-control" id={'signup-password'} name="password" required />
+                                <input type={'password'} className="form-control" id={'signup-password'} name="password" ref={passwordRef} required />
                             </FormGroup>
+                            {/* error if username is already in use */}
+                            {errorMessage && (
+                                <div className="error-message" style={{ color: 'red' }}>
+                                    {errorMessage}
+                                </div>
+                            )}
                            <div className="row justify-content-end">
                             <div className="col-auto">
                                 <Button type="submit" className="btn-primary mt-2" id="signup-btn">Signup</Button>

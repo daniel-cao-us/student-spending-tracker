@@ -1,5 +1,6 @@
 import graphene
 from graphene import Date
+from graphql import GraphQLError
 import pymongo
 from pymongo.mongo_client import MongoClient
 from pymongo.server_api import ServerApi
@@ -67,11 +68,9 @@ class Query(graphene.ObjectType):
 
     def resolve_user(self, info, userId):
         # use userId to authenticate user for now, can change to tokens later if necessary
-        
         # gets all user info from the database
         user_data = collection.find_one({"id": userId})
-        # print(list(collection.find({})))
-        print(user_data)
+        #print(collection.find({}))
         return user_data
     
 
@@ -157,7 +156,6 @@ class Query(graphene.ObjectType):
         if not result:
             return result
         return result[0]["budget"]
-    
 '''
 For authentication or whatever, idk whether we are using tokens or if we just use like a userId that we create
 upon login and then pass that in for every subsequent mutation/query
@@ -167,22 +165,21 @@ upon login and then pass that in for every subsequent mutation/query
 class Register(graphene.Mutation):
     class Arguments:
         username = graphene.String(required=True)
-        email = graphene.String(required=True)
         password = graphene.String(required=True)
     
     user = graphene.Field(User)
 
-    def mutate(self, info, username, email, password):
+    def mutate(self, info, username, password):
         # check if the username and email are not already in the database
-        if collection.find_one({"$or": [{"username": username}, {"email": email}]}):
-            raise Exception("A username or email is already in use")
-        
+        if collection.find_one({"username": username}):
+            # raise Exception("A username is already in use")
+            raise GraphQLError("Username already in use")
         # insert the new user info into database
         id = collection.count_documents({}) + 1
         data = {
             "id": str(id),
             "username": username,
-            "email": email,
+            "email": None,
             "password": password,
             "expenses": [],
             "budget": []
@@ -191,7 +188,7 @@ class Register(graphene.Mutation):
         new_user = User(
             id = str(id), # add id after database implementation
             username = username,
-            email = email,
+            email = None,
             password = password,
             expenses = [],
             budget = []
@@ -209,7 +206,7 @@ class Login(graphene.Mutation):
         # check that username is valid entry in the database and the corresponding password is correct
         result = collection.find_one({"$and": [{"username": username}, {"password": password}]})
         if not result:
-            raise Exception("Username or password is wrong")
+            raise GraphQLError("Username or password is wrong")
 
         # get userId that will be subqsequntly passwed in later mutations and queries for user
         user = User(
@@ -238,7 +235,7 @@ class AddExpense(graphene.Mutation):
 
         # check if valid expense
         if amount < 0:
-            raise Exception("Expense invalid")
+            raise GraphQLError("Expense invalid")
 
         # add new expense to database
         result = collection.find_one({"id": userId})
@@ -254,6 +251,20 @@ class AddExpense(graphene.Mutation):
             {"id": userId},
             {"$push": {"expenses": expense}}
         )
+
+        pipeline = [
+            {"$match": {"id": userId}},
+            {"$unwind": "$budget"},
+            {"$match": {"budget.category": category}},
+            {"$group": {"_id": "$id", "budget": {"$push": "$budget"}}}
+        ]
+        existing_budget = list(collection.aggregate(pipeline=pipeline))
+        if (existing_budget):
+            collection.update_one(
+                {"id": userId, "budget.category": category}, 
+                {"$set": {"budget.$.budget_remaining": existing_budget[0]['budget'][0]['budget_remaining'] - amount,
+                          "budget.$.budget_exceeded": existing_budget[0]['budget'][0]['budget_remaining'] - amount < 0}}
+            )
         user = User(
             id = result['id'], # add id after database implementation
             username = result['username'],
@@ -268,34 +279,46 @@ class AddBudget(graphene.Mutation):
     class Arguments():
         userId = graphene.ID()
         budget_total = graphene.Float(required=True)
-        budget_remaining = graphene.Float(required=True)
-        budget_exceeded = graphene.Boolean()
+        # budget_remaining = graphene.Float()
+        # budget_exceeded = graphene.Boolean()
         category = graphene.Argument(ExpenseCategory)
     
     user = graphene.Field(User)
 
-    def mutate(self, info, userId, budget_total, budget_remaining, budget_exceeded, category):
+    # def mutate(self, info, userId, budget_total, budget_remaining, budget_exceeded, category):
+    def mutate(self, info, userId, budget_total, category):
         # maybe change to tokens later
 
-        #check if valid budget
-        if budget_remaining < 0 or budget_total < 0:
-            raise Exception("Budget invalid")
-        
+        pipeline = [
+            {"$match": {"id": userId}},
+            {"$unwind": "$budget"},
+            {"$match": {"budget.category": category}},
+            {"$group": {"_id": "$id", "budget": {"$push": "$budget"}}}
+        ]
+        existing_budget = list(collection.aggregate(pipeline=pipeline))
+        # print(existing_budget[0])
         result = collection.find_one({"id": userId})
-        id = len(result['budget']) + 1 if result else 1
-        # add budget to the database
-        budget = {
-            "id": id,
-            "budget_total": budget_total,
-            "budget_remaining": budget_remaining,
-            "budget_exceeded": False,
-            "category": category
-        }
-        collection.update_one(
-            {"id": userId},
-            {"$push": {"budget": budget}}
-        )
 
+        if not existing_budget:
+            id = len(result['budget']) + 1 if result else 1
+            # add budget to the database
+            budget = {
+                "id": id,
+                "budget_total": budget_total,
+                "budget_remaining": budget_total,
+                "budget_exceeded": False,
+                "category": category
+            }
+            collection.update_one(
+                {"id": userId},
+                {"$push": {"budget": budget}}
+            )
+        else:
+            collection.update_one(
+                {"id": userId, "budget.category": category}, 
+                {"$set": {"budget.$.budget_total": budget_total, "budget.$.budget_remaining": budget_total,"budget.$.budget_exceeded": False}}
+            )
+            
         user = User(
             id = result['id'], # add id after database implementation
             username = result['username'],
