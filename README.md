@@ -29,7 +29,7 @@ For more details, view the full project proposal [here](https://docs.google.com/
   - venv\Scripts\activate - for Windows
   - source myenv/bin/activate - for Unix/Mac
 
-## Running Frrontend:
+## Running Frontend:
 1. cd react_framework
 2. npm install
 3. npm start
